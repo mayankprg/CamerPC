@@ -92,6 +92,7 @@ fun MainScreen() {
             availableCameras = uiState.availableCameras,
             selectedCamera = uiState.selectedCamera,
             onCameraSelected = viewModel::selectCamera,
+            onEncodedData = viewModel::sendEncodedData,
             onToggleStreaming = viewModel::toggleStreaming
         )
     } else {
@@ -108,6 +109,7 @@ fun CameraContent(
     availableCameras: List<CameraOption>,
     selectedCamera: CameraOption?,
     onCameraSelected: (CameraOption) -> Unit,
+    onEncodedData: (ByteArray) -> Unit,
     onToggleStreaming: () -> Unit
 ) {
     val context = LocalContext.current
@@ -136,6 +138,7 @@ fun CameraContent(
                 val encodedData = videoEncoder.encode(image)
                 if (encodedData != null) {
                      Log.d("Streaming", "Encoded frame size: ${encodedData.size} bytes")
+                     onEncodedData(encodedData)
                 }
             }
             useCases.add(imageAnalysis)
@@ -192,7 +195,7 @@ fun CameraContent(
                     Spacer(modifier = Modifier.height(8.dp))
                     
                     Text(
-                        text = "Device IP: $ipAddress",
+                        text = "Connect to: $ipAddress:5000",
                         style = MaterialTheme.typography.bodyMedium
                     )
 

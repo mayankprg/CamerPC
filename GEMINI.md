@@ -48,5 +48,5 @@ The application is structured into two main layers:
 
 ## Notes
 -   Ensure both devices are on the same Wi-Fi network.
--   The app will display the IP address to connect to.
--   Streaming encodes video data but currently logs the output size (network transmission is in development).
+-   The app will display the IP address and Port (5000) to connect to.
+-   Streaming encodes video data and transmits it over TCP. Use a player like VLC (using `tcp://<ip>:5000`) or a custom script to view the stream.

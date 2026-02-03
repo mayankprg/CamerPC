@@ -15,6 +15,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+import com.fumes.camerpc.data.StreamingServer
+import kotlinx.coroutines.Dispatchers
+
 class MainViewModel(
     private val networkRepository: NetworkRepository,
     private val cameraRepository: CameraRepository
@@ -22,9 +25,15 @@ class MainViewModel(
 
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
+    
+    private val streamingServer = StreamingServer(port = 5000)
 
     init {
         fetchIpAddress()
+    }
+
+    fun sendEncodedData(data: ByteArray) {
+        streamingServer.sendData(data)
     }
 
     fun loadCameras() {
@@ -56,7 +65,16 @@ class MainViewModel(
     }
 
     fun toggleStreaming() {
-        _uiState.update { it.copy(isStreaming = !it.isStreaming) }
+        val newStreamingState = !_uiState.value.isStreaming
+        _uiState.update { it.copy(isStreaming = newStreamingState) }
+        
+        if (newStreamingState) {
+            viewModelScope.launch {
+                streamingServer.start()
+            }
+        } else {
+            streamingServer.stop()
+        }
     }
 
     companion object {
