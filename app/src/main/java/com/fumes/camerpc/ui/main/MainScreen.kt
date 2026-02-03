@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -19,14 +20,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VideocamOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -34,7 +39,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -43,15 +50,18 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.fumes.camerpc.util.await
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.fumes.camerpc.data.CameraOption
+import com.fumes.camerpc.data.VideoEncoder
+import java.util.concurrent.Executors
 
 @Composable
-fun MainScreen(
-    viewModel: MainViewModel = viewModel(factory = MainViewModel.Factory)
-) {
-    val uiState by viewModel.uiState.collectAsState()
+fun MainScreen() {
     val context = LocalContext.current
+    val viewModel: MainViewModel = viewModel(factory = MainViewModel.provideFactory(context))
+    val uiState by viewModel.uiState.collectAsState()
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -79,6 +89,9 @@ fun MainScreen(
         CameraContent(
             isStreaming = uiState.isStreaming,
             ipAddress = uiState.ipAddress,
+            availableCameras = uiState.availableCameras,
+            selectedCamera = uiState.selectedCamera,
+            onCameraSelected = viewModel::selectCamera,
             onToggleStreaming = viewModel::toggleStreaming
         )
     } else {
@@ -92,44 +105,66 @@ fun MainScreen(
 fun CameraContent(
     isStreaming: Boolean,
     ipAddress: String,
+    availableCameras: List<CameraOption>,
+    selectedCamera: CameraOption?,
+    onCameraSelected: (CameraOption) -> Unit,
     onToggleStreaming: () -> Unit
 ) {
+    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val previewView = remember { PreviewView(context) }
+    val videoEncoder = remember { VideoEncoder() }
+    val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
+    
+    LaunchedEffect(selectedCamera, isStreaming) {
+        val cameraProvider = ProcessCameraProvider.getInstance(context).await()
+        val preview = Preview.Builder().build()
+        val selector = selectedCamera?.selector ?: CameraSelector.DEFAULT_BACK_CAMERA
+
+        preview.setSurfaceProvider(previewView.surfaceProvider)
+
+        val useCases = mutableListOf<androidx.camera.core.UseCase>(preview)
+
+        if (isStreaming) {
+            val imageAnalysis = ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+                .build()
+
+            imageAnalysis.setAnalyzer(analysisExecutor) { image ->
+                videoEncoder.start(image.width, image.height)
+                val encodedData = videoEncoder.encode(image)
+                if (encodedData != null) {
+                     Log.d("Streaming", "Encoded frame size: ${encodedData.size} bytes")
+                }
+            }
+            useCases.add(imageAnalysis)
+        } else {
+            videoEncoder.stop()
+        }
+
+        try {
+            cameraProvider.unbindAll()
+            val camera = cameraProvider.bindToLifecycle(
+                lifecycleOwner,
+                selector,
+                *useCases.toTypedArray()
+            )
+            
+            if (selectedCamera?.zoomRatio != null) {
+                camera.cameraControl.setZoomRatio(selectedCamera.zoomRatio)
+            }
+        } catch (e: Exception) {
+            Log.e("CameraContent", "Use case binding failed", e)
+        }
+    }
     
     Box(modifier = Modifier.fillMaxSize()) {
-        // Camera Preview
         AndroidView(
-            factory = { ctx ->
-                val previewView = PreviewView(ctx).apply {
-                    implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-                }
-                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-
-                cameraProviderFuture.addListener({
-                    val cameraProvider = cameraProviderFuture.get()
-                    val preview = Preview.Builder().build()
-                    val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-
-                    preview.setSurfaceProvider(previewView.surfaceProvider)
-
-                    try {
-                        cameraProvider.unbindAll()
-                        cameraProvider.bindToLifecycle(
-                            lifecycleOwner,
-                            cameraSelector,
-                            preview
-                        )
-                    } catch (e: Exception) {
-                        Log.e("CameraContent", "Use case binding failed", e)
-                    }
-                }, ContextCompat.getMainExecutor(ctx))
-
-                previewView
-            },
+            factory = { previewView },
             modifier = Modifier.fillMaxSize()
         )
 
-        // UI Overlay
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -163,6 +198,15 @@ fun CameraContent(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
+                    if (availableCameras.isNotEmpty()) {
+                        CameraSelectorDropdown(
+                            availableCameras = availableCameras,
+                            selectedCamera = selectedCamera,
+                            onCameraSelected = onCameraSelected
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+
                     Button(
                         onClick = onToggleStreaming,
                         colors = ButtonDefaults.buttonColors(
@@ -179,6 +223,53 @@ fun CameraContent(
                         Text(if (isStreaming) "Stop Streaming" else "Start Streaming")
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun CameraSelectorDropdown(
+    availableCameras: List<CameraOption>,
+    selectedCamera: CameraOption?,
+    onCameraSelected: (CameraOption) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .wrapContentSize(Alignment.TopStart)
+    ) {
+        Button(
+            onClick = { expanded = true },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Text(
+                text = selectedCamera?.title ?: "Select Camera",
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            Icon(
+                Icons.Default.ArrowDropDown,
+                contentDescription = "Select Camera",
+                tint = MaterialTheme.colorScheme.onSurface
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.fillMaxWidth(0.8f)
+        ) {
+            availableCameras.forEach { camera ->
+                DropdownMenuItem(
+                    text = { Text(camera.title) },
+                    onClick = {
+                        onCameraSelected(camera)
+                        expanded = false
+                    }
+                )
             }
         }
     }

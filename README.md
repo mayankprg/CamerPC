@@ -5,6 +5,8 @@ CamerPC is an Android application designed to stream the phone's camera feed to 
 
 ## Features
 -   **Camera Streaming:** Streams the camera preview to a specified IP and Port.
+-   **Video Encoding:** Encodes raw camera frames into H.264 (AVC) format using hardware acceleration.
+-   **Camera Selection:** Allows users to switch between available camera modules (Front/Back) and select specific zoom levels (0.6x, 1.0x, 3.0x).
 -   **Modern UI:** Built with Jetpack Compose and Material 3.
 -   **Latest Tech:** Utilizes the latest Android features and CameraX.
 -   **Robust Architecture:** Implements the official Android recommended layered architecture (MVVM).
@@ -14,18 +16,23 @@ The application is structured into two main layers:
 
 1.  **UI Layer (`com.fumes.camerpc.ui`)**:
     *   **Components:** `MainScreen` (Composable), `MainViewModel`.
-    *   **Responsibility:** Displays data on the screen and captures user interactions.
+    *   **Responsibility:** Displays data on the screen, handles camera selection, and captures user interactions.
     *   **State Management:** Uses `StateFlow` and `MainUiState` for reactive UI updates.
 2.  **Data Layer (`com.fumes.camerpc.data`)**:
-    *   **Components:** `NetworkRepository`.
-    *   **Responsibility:** Handles business logic and data operations (e.g., retrieving IP addresses).
+    *   **Components:** 
+        *   `NetworkRepository`: Handles network address retrieval.
+        *   `CameraRepository`: Fetches and organizes available camera capabilities.
+        *   `VideoEncoder`: Manages `MediaCodec` to encode raw YUV frames into H.264.
+        *   `YuvUtils`: Utility for converting CameraX `ImageProxy` to NV12 format.
+    *   **Responsibility:** Handles business logic, data operations, and heavy media processing.
 
 ## Technologies Used
 -   **Language:** Kotlin
 -   **UI Framework:** Jetpack Compose (Material 3)
 -   **Concurrency:** Kotlin Coroutines & Flow
 -   **Architecture Pattern:** MVVM (Model-View-ViewModel)
--   **Camera:** CameraX (Preview, Lifecycle binding)
+-   **Camera:** CameraX (Preview, ImageAnalysis, Lifecycle binding)
+-   **Media:** MediaCodec (H.264 Encoding)
 -   **Dependency Injection:** Manual Dependency Injection (ViewModel Factory)
 -   **Build System:** Gradle (Kotlin DSL)
 
@@ -42,3 +49,4 @@ The application is structured into two main layers:
 ## Notes
 -   Ensure both devices are on the same Wi-Fi network.
 -   The app will display the IP address to connect to.
+-   Streaming encodes video data but currently logs the output size (network transmission is in development).
