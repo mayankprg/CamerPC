@@ -22,8 +22,7 @@ The application is structured into two main layers:
     *   **Components:** 
         *   `NetworkRepository`: Handles network address retrieval.
         *   `CameraRepository`: Fetches and organizes available camera capabilities.
-        *   `VideoEncoder`: Manages `MediaCodec` to encode raw YUV frames into H.264.
-        *   `YuvUtils`: Utility for converting CameraX `ImageProxy` to NV12 format.
+        *   `VideoEncoder`: Manages `MediaCodec` to encode video directly from a Surface input into H.264.
     *   **Responsibility:** Handles business logic, data operations, and heavy media processing.
 
 ## Technologies Used
@@ -31,7 +30,7 @@ The application is structured into two main layers:
 -   **UI Framework:** Jetpack Compose (Material 3)
 -   **Concurrency:** Kotlin Coroutines & Flow
 -   **Architecture Pattern:** MVVM (Model-View-ViewModel)
--   **Camera:** CameraX (Preview, ImageAnalysis, Lifecycle binding)
+-   **Camera:** CameraX (Preview, Lifecycle binding)
 -   **Media:** MediaCodec (H.264 Encoding)
 -   **Dependency Injection:** Manual Dependency Injection (ViewModel Factory)
 -   **Build System:** Gradle (Kotlin DSL)

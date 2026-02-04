@@ -8,7 +8,6 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -52,10 +51,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.fumes.camerpc.util.await
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fumes.camerpc.data.CameraOption
 import com.fumes.camerpc.data.VideoEncoder
-import java.util.concurrent.Executors
+
 
 @Composable
 fun MainScreen() {
@@ -113,10 +113,10 @@ fun CameraContent(
     onToggleStreaming: () -> Unit
 ) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val previewView = remember { PreviewView(context) }
     val videoEncoder = remember { VideoEncoder() }
-    val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
+    // executor not needed for Surface mode
     
     LaunchedEffect(selectedCamera, isStreaming) {
         val cameraProvider = ProcessCameraProvider.getInstance(context).await()
@@ -128,20 +128,28 @@ fun CameraContent(
         val useCases = mutableListOf<androidx.camera.core.UseCase>(preview)
 
         if (isStreaming) {
-            val imageAnalysis = ImageAnalysis.Builder()
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
-                .build()
-
-            imageAnalysis.setAnalyzer(analysisExecutor) { image ->
-                videoEncoder.start(image.width, image.height)
-                val encodedData = videoEncoder.encode(image)
-                if (encodedData != null) {
-                     Log.d("Streaming", "Encoded frame size: ${encodedData.size} bytes")
-                     onEncodedData(encodedData)
+            val encoderPreview = Preview.Builder().build()
+            
+            encoderPreview.setSurfaceProvider { request ->
+                val resolution = request.resolution
+                val encoderSurface = videoEncoder.start(resolution.width, resolution.height) { data ->
+                     // Send encoded data
+                     onEncodedData(data)
+                }
+                
+                if (encoderSurface != null) {
+                    request.provideSurface(encoderSurface, ContextCompat.getMainExecutor(context)) { result ->
+                        // Surface release or cleanup if needed
+                        // VideoEncoder.stop() handles surface release internally when stopped, 
+                        // but strictly speaking, we passed the surface to CameraX.
+                        // When CameraX is done, it calls this. We don't need to do much 
+                        // as VideoEncoder manages the Codec and Surface lifecycle.
+                    }
+                } else {
+                    request.willNotProvideSurface()
                 }
             }
-            useCases.add(imageAnalysis)
+            useCases.add(encoderPreview)
         } else {
             videoEncoder.stop()
         }
@@ -164,7 +172,11 @@ fun CameraContent(
     
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
-            factory = { previewView },
+            factory = { 
+                previewView.apply { 
+                    keepScreenOn = true 
+                } 
+            },
             modifier = Modifier.fillMaxSize()
         )
 
