@@ -91,8 +91,9 @@ fun MainScreen() {
             ipAddress = uiState.ipAddress,
             availableCameras = uiState.availableCameras,
             selectedCamera = uiState.selectedCamera,
+            forceKeyFrameEvent = viewModel.forceKeyFrameEvent,
             onCameraSelected = viewModel::selectCamera,
-            onEncodedData = viewModel::sendEncodedData,
+            onEncodedData = { data, isKeyFrame -> viewModel.sendEncodedData(data, isKeyFrame) },
             onToggleStreaming = viewModel::toggleStreaming
         )
     } else {
@@ -108,8 +109,9 @@ fun CameraContent(
     ipAddress: String,
     availableCameras: List<CameraOption>,
     selectedCamera: CameraOption?,
+    forceKeyFrameEvent: kotlinx.coroutines.flow.SharedFlow<Unit>,
     onCameraSelected: (CameraOption) -> Unit,
-    onEncodedData: (ByteArray) -> Unit,
+    onEncodedData: (ByteArray, Boolean) -> Unit,
     onToggleStreaming: () -> Unit
 ) {
     val context = LocalContext.current
@@ -117,6 +119,12 @@ fun CameraContent(
     val previewView = remember { PreviewView(context) }
     val videoEncoder = remember { VideoEncoder() }
     // executor not needed for Surface mode
+    
+    LaunchedEffect(Unit) {
+        forceKeyFrameEvent.collect {
+            videoEncoder.forceKeyFrame()
+        }
+    }
     
     LaunchedEffect(selectedCamera, isStreaming) {
         val cameraProvider = ProcessCameraProvider.getInstance(context).await()
@@ -132,9 +140,9 @@ fun CameraContent(
             
             encoderPreview.setSurfaceProvider { request ->
                 val resolution = request.resolution
-                val encoderSurface = videoEncoder.start(resolution.width, resolution.height) { data ->
+                val encoderSurface = videoEncoder.start(resolution.width, resolution.height) { data, isKeyFrame ->
                      // Send encoded data
-                     onEncodedData(data)
+                     onEncodedData(data, isKeyFrame)
                 }
                 
                 if (encoderSurface != null) {

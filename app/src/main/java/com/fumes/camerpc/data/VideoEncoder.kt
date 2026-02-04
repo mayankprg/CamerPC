@@ -12,13 +12,13 @@ class VideoEncoder {
     private var codec: MediaCodec? = null
     private var isRunning = false
     private var configData: ByteArray? = null
-    private var dataCallback: ((ByteArray) -> Unit)? = null
+    private var dataCallback: ((ByteArray, Boolean) -> Unit)? = null
 
     /**
      * Starts the encoder and returns the Input Surface.
      * The caller must attach this Surface to the Camera.
      */
-    fun start(width: Int, height: Int, callback: (ByteArray) -> Unit): Surface? {
+    fun start(width: Int, height: Int, callback: (ByteArray, Boolean) -> Unit): Surface? {
         if (isRunning) {
             Log.w("VideoEncoder", "Encoder already running")
             return null
@@ -71,14 +71,16 @@ class VideoEncoder {
                             val outData = ByteArray(info.size)
                             outputBuffer.get(outData)
 
+                            val isKeyFrame = (info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0
+
                             // Prepend Config Data to Keyframes
-                            if ((info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0 && configData != null) {
+                            if (isKeyFrame && configData != null) {
                                 val combinedData = ByteArray(configData!!.size + outData.size)
                                 System.arraycopy(configData!!, 0, combinedData, 0, configData!!.size)
                                 System.arraycopy(outData, 0, combinedData, configData!!.size, outData.size)
-                                dataCallback?.invoke(combinedData)
+                                dataCallback?.invoke(combinedData, true)
                             } else {
-                                dataCallback?.invoke(outData)
+                                dataCallback?.invoke(outData, isKeyFrame)
                             }
                         }
                         codec.releaseOutputBuffer(index, false)
@@ -126,6 +128,18 @@ class VideoEncoder {
             configData = null
             dataCallback = null
             Log.d("VideoEncoder", "Encoder stopped")
+        }
+    }
+
+    fun forceKeyFrame() {
+        if (!isRunning) return
+        try {
+            val bundle = Bundle()
+            bundle.putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0)
+            codec?.setParameters(bundle)
+            Log.d("VideoEncoder", "Forced KeyFrame requested")
+        } catch (e: Exception) {
+            Log.e("VideoEncoder", "Failed to force KeyFrame", e)
         }
     }
 }

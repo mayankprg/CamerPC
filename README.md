@@ -6,6 +6,9 @@ CamerPC is an Android application designed to stream the phone's camera feed to 
 ## Features
 -   **Camera Streaming:** Streams the camera preview to a specified IP and Port.
 -   **Video Encoding:** Encodes raw camera frames into H.264 (AVC) format using hardware acceleration.
+-   **Background Streaming:** Offloads network writes to background coroutines using conflated Kotlin Channels to prevent UI freezes and ensure low-latency delivery.
+-   **Stable Connections:** Implements Keyframe-first logic, ensuring clients receive a full picture immediately upon connection.
+-   **On-Demand Keyframes:** Automatically requests a hardware sync frame when a new client connects for instant playback.
 -   **Camera Selection:** Allows users to switch between available camera modules (Front/Back) and select specific zoom levels (0.6x, 1.0x, 3.0x).
 -   **Modern UI:** Built with Jetpack Compose and Material 3.
 -   **Latest Tech:** Utilizes the latest Android features and CameraX.

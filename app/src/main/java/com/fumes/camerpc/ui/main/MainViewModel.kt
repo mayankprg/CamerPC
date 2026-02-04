@@ -18,6 +18,10 @@ import kotlinx.coroutines.launch
 import com.fumes.camerpc.data.StreamingServer
 import kotlinx.coroutines.Dispatchers
 
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+
 class MainViewModel(
     private val networkRepository: NetworkRepository,
     private val cameraRepository: CameraRepository
@@ -26,14 +30,21 @@ class MainViewModel(
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
     
-    private val streamingServer = StreamingServer(port = 5000)
+    private val _forceKeyFrameEvent = MutableSharedFlow<Unit>()
+    val forceKeyFrameEvent: SharedFlow<Unit> = _forceKeyFrameEvent.asSharedFlow()
+    
+    private val streamingServer = StreamingServer(port = 5000) {
+        viewModelScope.launch {
+            _forceKeyFrameEvent.emit(Unit)
+        }
+    }
 
     init {
         fetchIpAddress()
     }
 
-    fun sendEncodedData(data: ByteArray) {
-        streamingServer.sendData(data)
+    fun sendEncodedData(data: ByteArray, isKeyFrame: Boolean) {
+        streamingServer.sendData(data, isKeyFrame)
     }
 
     fun loadCameras() {

@@ -1,7 +1,11 @@
 package com.fumes.camerpc.data
 
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.OutputStream
 import java.net.ServerSocket
@@ -10,22 +14,58 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 import java.net.InetSocketAddress
 
-class StreamingServer(private val port: Int = 5000) {
+class StreamingServer(
+    private val port: Int = 5000,
+    private val onClientConnected: () -> Unit = {}
+) {
     private var serverSocket: ServerSocket? = null
     @Volatile private var outputStream: OutputStream? = null
     private var clientSocket: Socket? = null
     private val isRunning = AtomicBoolean(false)
+    private val isWaitingForKeyFrame = AtomicBoolean(true)
+    
+    private data class StreamData(val data: ByteArray, val isKeyFrame: Boolean)
+    private var dataChannel = Channel<StreamData>(capacity = Channel.CONFLATED)
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var senderJob: kotlinx.coroutines.Job? = null
 
     suspend fun start() = withContext(Dispatchers.IO) {
         if (isRunning.get()) return@withContext
         
         try {
+            dataChannel = Channel(capacity = Channel.CONFLATED)
             serverSocket = ServerSocket()
             serverSocket?.reuseAddress = true
             serverSocket?.bind(InetSocketAddress("0.0.0.0", port))
             
             isRunning.set(true)
             Log.d("StreamingServer", "Server started on port $port. Waiting for connections...")
+            
+            // Start the sender loop
+            senderJob = scope.launch {
+                try {
+                    for (streamData in dataChannel) {
+                        if (isWaitingForKeyFrame.get() && !streamData.isKeyFrame) {
+                            continue // Skip until we get a keyframe for the new client
+                        }
+                        isWaitingForKeyFrame.set(false)
+
+                        val stream = outputStream
+                        if (stream != null) {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    stream.write(streamData.data)
+                                }
+                            } catch (e: Exception) {
+                                Log.e("StreamingServer", "Error sending data, client disconnected", e)
+                                cleanupClient()
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("StreamingServer", "Sender job cancelled or failed", e)
+                }
+            }
             
             while (isRunning.get()) {
                 try {
@@ -39,6 +79,8 @@ class StreamingServer(private val port: Int = 5000) {
                         
                         clientSocket = socket
                         outputStream = socket.getOutputStream()
+                        isWaitingForKeyFrame.set(true)
+                        onClientConnected()
                         
                         // We stay in this state until write fails or server stops
                         // The loop continues only if accept throws or we want to support multiple (which we don't here, strictly)
@@ -63,6 +105,8 @@ class StreamingServer(private val port: Int = 5000) {
 
     fun stop() {
         isRunning.set(false)
+        dataChannel.close()
+        senderJob?.cancel()
         cleanupClient()
         try {
             serverSocket?.close()
@@ -86,16 +130,8 @@ class StreamingServer(private val port: Int = 5000) {
         }
     }
 
-    fun sendData(data: ByteArray) {
+    fun sendData(data: ByteArray, isKeyFrame: Boolean) {
         if (!isRunning.get()) return
-        val stream = outputStream ?: return
-        
-        try {
-            stream.write(data)
-            // stream.flush() // Flush might degrade performance for high fps, OS buffers are fine
-        } catch (e: Exception) {
-            Log.e("StreamingServer", "Error sending data, client disconnected", e)
-            cleanupClient()
-        }
+        dataChannel.trySend(StreamData(data, isKeyFrame))
     }
 }
